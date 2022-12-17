@@ -7,3 +7,14 @@ edition = "2021"
 
 [dependencies]
 thiserror = "1.0.37"
+rstest = "0.16.0"
+proptest = "1.0.0"
+snafu = "0.7.3"
+
+[[bin]]
+name = "vigeners"
+path = "src/main.rs"
+
+[lib]
+name = "vigeners"
+path = "src/lib.rs"

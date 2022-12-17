@@ -1,108 +1,90 @@
-// Specify linters to Vigeners module.
-// TODO(Cardosaum): Enable all these linters
-// #![cfg_attr(
-// 	not(test),
-// 	deny(
-// 		clippy::all,
-// 		clippy::cargo,
-// 		clippy::complexity,
-// 		clippy::correctness,
-// 		clippy::nursery,
-// 		// clippy::pedantic,
-// 		clippy::perf,
-// 		// clippy::restriction,
-// 		clippy::style,
-// 		clippy::suspicious,
-// 		// missing_docs,
-// 		rustdoc::missing_crate_level_docs,
-// 		rustdoc::missing_doc_code_examples,
-// 		warnings,
-// 	)
-// )]
+use std::fs;
+use std::path::Path;
 
-use std::{ascii::AsciiExt, ops::Sub};
-
-// TODO(Cardosaum): Remove missing docs
-#[allow(missing_docs)]
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    #[error("Invalid key! (Key must contain alphabetic characters only)")]
-    InvalidKey,
+pub trait Cipher {
+    fn encrypt(&self, plaintext: &str) -> String;
+    fn decrypt(&self, ciphertext: &str) -> String;
+    fn repeat_string(s: &str, desired_length: usize) -> String;
 }
 
-// TODO(Cardosaum): Remove missing docs
-#[allow(missing_docs)]
-pub type Result<T> = std::result::Result<T, Error>;
-// TODO(Cardosaum): Search how to instantiate a `Key` only if it passes the validity check. Something similar is done in Gamercode (?)
-pub type Filter = Vec<u8>;
-
-pub trait Vigeners {
-    // TODO(Cardosaum): Write documentation for all methods
-
-    // === Cipher ===
-    fn encipher(&self, key: &str) -> Result<String>;
-    // fn decipher(&self, key: &str) -> Result<String>;
-
-    // === Key ===
-    fn parse_key(&self) -> Option<Filter>;
-    fn validate_key(&self) -> Result<Filter>;
-
-    // === Helpers ===
-    // fn transpose(&self, filter: &[u8]) -> Result<String>;
+#[derive(Debug)]
+pub struct VigenereCipher {
+    pub key: String,
 }
 
-impl Vigeners for str {
-    fn encipher(&self, key: &str) -> Result<String> {
-        // Sanity checks
-        let key = key.validate_key()?;
+impl Cipher for VigenereCipher {
+    fn encrypt(&self, plaintext: &str) -> String {
+        let plaintext_int: Vec<u8> = plaintext.to_lowercase().bytes().map(|b| b - 97).collect();
+        let key = Self::repeat_string(&self.key.to_lowercase(), plaintext_int.len());
+        let key_length = key.len();
+        let key_as_int: Vec<u8> = key.bytes().map(|b| b - 97).collect();
 
-        Ok(self.to_string())
+        let mut ciphertext = String::new();
+        for i in 0..plaintext_int.len() {
+            let value = (plaintext_int[i] + key_as_int[i % key_length]) % 26;
+            ciphertext.push((value + 97) as char);
+        }
+        ciphertext
     }
 
-    fn parse_key(&self) -> Option<Filter> {
-        let mut key = Vec::with_capacity(self.chars().size_hint().1.unwrap_or_default());
-        for c in self.chars() {
-            match (
-                c.is_alphabetic(),
-                u8::try_from(c.to_ascii_lowercase())
-                    .and_then(|x| Ok(x.max(65).sub(x.min(65))))
-                    .ok(),
-            ) {
-                (true, Some(v)) => key.push(v),
-                _ => return None,
-            }
+    fn decrypt(&self, ciphertext: &str) -> String {
+        let ciphertext_int: Vec<u8> = ciphertext.to_lowercase().bytes().map(|b| b - 97).collect();
+        let key = Self::repeat_string(&self.key.to_lowercase(), ciphertext_int.len());
+        let key_length = key.len();
+        let key_as_int: Vec<u8> = key.bytes().map(|b| b - 97).collect();
+
+        let mut plaintext = String::new();
+        for i in 0..ciphertext_int.len() {
+            dbg!(&i, &ciphertext_int, &key_as_int, &ciphertext_int[i], &key_length, i % key_length, &key_as_int[i & key_length]);
+            let value = (ciphertext_int[i] - key_as_int[i % key_length]) % 26;
+            plaintext.push((value + 97) as char);
         }
-        return Some(key);
+        plaintext
     }
 
-    fn validate_key(&self) -> Result<Filter> {
-        match self.parse_key() {
-            Some(key) => Ok(key),
-            _ => Err(Error::InvalidKey),
+    fn repeat_string(s: &str, desired_length: usize) -> String {
+        let mut result = s.to_string();
+        while result.len() < desired_length {
+            result.push_str(s);
         }
+        result.truncate(desired_length);
+        result
+    }
+}
+
+pub struct TestFileInput {
+    path: String,
+}
+
+impl TestFileInput {
+    pub fn new(path: &str) -> TestFileInput {
+        TestFileInput {
+            path: path.to_string(),
+        }
+    }
+
+    pub fn read_contents(&self) -> String {
+        let path = Path::new(&self.path);
+        fs::read_to_string(path).expect("Error reading file")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
-    #[test]
-    fn is_valid_key() {
-        let key = "mykey";
-        assert!(key.validate_key())
-    }
-
-    #[test]
-    fn is_invalid_key() {
-        let key = "my key";
-        assert!(!key.validate_key())
-    }
-
-    #[test]
-    fn succeed_enchiper_text() {
-        let key = "mykey";
-        let text = "I'm just testing this cipher :)";
-        assert_eq!(Ok(text.to_string()), text.encipher(key))
+    proptest! {
+        #[test]
+        fn test_vigenere_cipher(key in "[a-z]{1,20}", plaintext in "[a-z]{1,20}") {
+            dbg!("=================================================");
+            dbg!(&key, &plaintext );
+            let cipher = VigenereCipher { key };
+            let ciphertext = cipher.encrypt(&plaintext);
+            let decrypted_message = cipher.decrypt(&ciphertext);
+            dbg!(&cipher, &ciphertext, &decrypted_message);
+            assert_eq!(plaintext, decrypted_message);
+            dbg!("-------------------------------------------------");
+        }
     }
 }
